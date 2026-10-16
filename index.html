@@ -255,7 +255,7 @@
             transition: width 0.3s;
         }
 
-        .video-player-wrap {
+        .canvas-wrap {
             position: relative;
             width: 100%;
             aspect-ratio: 16/9;
@@ -263,10 +263,11 @@
             display: none;
         }
 
-        .video-player-wrap video {
+        canvas {
             width: 100%;
             height: 100%;
             object-fit: cover;
+            display: block;
         }
 
         .video-badge {
@@ -423,7 +424,7 @@
     <div class="view-section active" id="chatSection">
         <div id="chatFeed">
             <div class="message-row bot">
-                <div class="bubble">Привіт! Опиши будь-яку фантазію, і я згенерую для тебе якісне AI-відео! 👇</div>
+                <div class="bubble">Привіт! Опиши будь-яку фантазію, і я згенерую для тебе динамічне AI-відео! 👇</div>
             </div>
         </div>
     </div>
@@ -452,7 +453,7 @@
         const galleryCount = document.getElementById('galleryCount');
         const userInput = document.getElementById('userInput');
 
-        let savedVideos = JSON.parse(localStorage.getItem('pixverse_ios_gallery')) || [];
+        let savedVideos = JSON.parse(localStorage.getItem('pixverse_ios_gallery_v2')) || [];
         window.addEventListener('DOMContentLoaded', renderGallery);
 
         userInput.addEventListener('keypress', (e) => {
@@ -476,10 +477,10 @@
         }
 
         function clearAllData() {
-            if(confirm("Очистити все?")) {
-                localStorage.removeItem('pixverse_ios_gallery');
+            if(confirm("Очистити всю галерею?")) {
+                localStorage.removeItem('pixverse_ios_gallery_v2');
                 savedVideos = [];
-                chatFeed.innerHTML = `<div class="message-row bot"><div class="bubble">Історію очищено!</div></div>`;
+                chatFeed.innerHTML = `<div class="message-row bot"><div class="bubble">Галерею очищено!</div></div>`;
                 renderGallery();
             }
         }
@@ -489,14 +490,6 @@
             startGeneration();
         }
 
-        // Набір красивих відео для демонстрації генерації AI
-        const sampleVideos = [
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackSeeTheWorld.mp4"
-        ];
-
         function startGeneration() {
             const query = userInput.value.trim();
             if (!query) return;
@@ -505,11 +498,8 @@
             userInput.value = '';
 
             const uid = 'gen-' + Date.now();
-            // Вибираємо відео випадковим чином з бази
-            const randomVideoUrl = sampleVideos[Math.floor(Math.random() * sampleVideos.length)];
-
             const botHtml = `
-                <div class="bubble" style="margin-bottom: 6px;">Генерація за запитом: <b>"${query}"</b>... Рендеринг дифузії кадрів.</div>
+                <div class="bubble" style="margin-bottom: 6px;">Генерація за запитом: <b>"${query}"</b>... Рендеринг дифузії.</div>
                 <div class="studio-card">
                     <div class="studio-header">
                         <span>⚡ AI Studio Engine</span>
@@ -522,20 +512,19 @@
                             <div class="progress-bar-fill" id="${uid}-bar"></div>
                         </div>
                     </div>
-                    <div class="video-player-wrap" id="${uid}-playerbox">
+                    <div class="canvas-wrap" id="${uid}-playerbox">
                         <div class="video-badge">PixVerse AI • HD</div>
-                        <video id="${uid}-vid" playsinline webkit-playsinline loop src="${randomVideoUrl}"></video>
+                        <canvas id="${uid}-canvas" width="640" height="360"></canvas>
                     </div>
                     <div class="video-controls-bar" id="${uid}-ctrls" style="display: none;">
-                        <button class="ctrl-btn" onclick="togglePlay('${uid}-vid')">▶️ Старт / Пауза</button>
-                        <button class="ctrl-btn" onclick="restartVid('${uid}-vid')">🔄 Наново</button>
-                        <button class="ctrl-btn" onclick="saveToGallery('${query.replace(/'/g, "")}', '${randomVideoUrl}')">💾 Зберегти</button>
+                        <button class="ctrl-btn" onclick="toggleAnim('${uid}')">▶️ Пауза / Пуск</button>
+                        <button class="ctrl-btn" onclick="saveToGallery('${query.replace(/'/g, "")}')">💾 Зберегти</button>
                     </div>
                 </div>
             `;
 
             appendMsg("", 'bot', botHtml);
-            runVideoSimulation(uid, query, randomVideoUrl);
+            runCanvasAnimation(uid, query);
         }
 
         function appendMsg(text, sender, html = '') {
@@ -556,7 +545,9 @@
             document.getElementById('chatSection').scrollTop = document.getElementById('chatSection').scrollHeight;
         }
 
-        function runVideoSimulation(id, promptText, videoUrl) {
+        let activeAnimations = {};
+
+        function runCanvasAnimation(id, promptText) {
             let p = 0;
             const pctEl = document.getElementById(`${id}-pct`);
             const barEl = document.getElementById(`${id}-bar`);
@@ -564,7 +555,8 @@
             const loadBox = document.getElementById(`${id}-loadbox`);
             const playerBox = document.getElementById(`${id}-playerbox`);
             const ctrls = document.getElementById(`${id}-ctrls`);
-            const vidEl = document.getElementById(`${id}-vid`);
+            const canvas = document.getElementById(`${id}-canvas`);
+            const ctx = canvas.getContext('2d');
 
             const timer = setInterval(() => {
                 p += Math.floor(Math.random() * 15) + 8;
@@ -579,40 +571,69 @@
                         playerBox.style.display = "block";
                         ctrls.style.display = "flex";
                         
-                        vidEl.play().catch(() => {});
-                        saveToGallerySilent(promptText, videoUrl);
+                        startLoop(ctx, canvas, promptText, id);
+                        saveToGallerySilent(promptText);
                     }, 400);
                 } else {
                     pctEl.textContent = p + "%";
                     barEl.style.width = p + "%";
-                    if(p > 50) statEl.textContent = "Фінальний апскейл кадрів...";
+                    if(p > 50) statEl.textContent = "Оптимізація та фінальний рендер...";
                 }
             }, 250);
         }
 
-        function togglePlay(vidId) {
-            const v = document.getElementById(vidId);
-            if(v.paused) v.play(); else v.pause();
+        function startLoop(ctx, canvas, text, id) {
+            let angle = 0;
+            let running = true;
+            activeAnimations[id] = () => { running = !running; };
+
+            function draw() {
+                if(!document.body.contains(canvas)) return;
+                if(running) {
+                    angle += 0.04;
+                    // Фонові градієнти
+                    ctx.fillStyle = "#070914";
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    // Динамічні нейро-елементи
+                    for(let i = 0; i < 4; i++) {
+                        ctx.beginPath();
+                        ctx.arc(
+                            canvas.width/2 + Math.sin(angle + i * 1.5) * 140,
+                            canvas.height/2 + Math.cos(angle * 0.8 + i) * 60,
+                            40 + i * 15, 0, Math.PI * 2
+                        );
+                        ctx.fillStyle = i % 2 === 0 ? "rgba(131, 56, 236, 0.3)" : "rgba(255, 0, 110, 0.3)";
+                        ctx.fill();
+                    }
+
+                    // Красивий текст запиту
+                    ctx.fillStyle = "#ffffff";
+                    ctx.font = "bold 18px sans-serif";
+                    ctx.textAlign = "center";
+                    ctx.fillText("🎬 " + text, canvas.width/2, canvas.height/2 + 6);
+                }
+                requestAnimationFrame(draw);
+            }
+            draw();
         }
 
-        function restartVid(vidId) {
-            const v = document.getElementById(vidId);
-            v.currentTime = 0;
-            v.play();
+        function toggleAnim(id) {
+            if(activeAnimations[id]) activeAnimations[id]();
         }
 
-        function saveToGallerySilent(prompt, url) {
-            const item = { id: Date.now(), prompt: prompt, url: url, date: new Date().toLocaleDateString() };
+        function saveToGallerySilent(prompt) {
+            const item = { id: Date.now(), prompt: prompt, date: new Date().toLocaleDateString() };
             if(!savedVideos.some(v => v.prompt === prompt)) {
                 savedVideos.unshift(item);
-                localStorage.setItem('pixverse_ios_gallery', JSON.stringify(savedVideos));
+                localStorage.setItem('pixverse_ios_gallery_v2', JSON.stringify(savedVideos));
                 renderGallery();
             }
         }
 
-        function saveToGallery(prompt, url) {
-            saveToGallerySilent(prompt, url);
-            alert("Успішно збережено у Галерею!");
+        function saveToGallery(prompt) {
+            saveToGallerySilent(prompt);
+            alert("Збережено у Галерею!");
         }
 
         function renderGallery() {
@@ -625,7 +646,9 @@
             savedVideos.forEach(item => {
                 galleryGrid.innerHTML += `
                     <div class="gallery-item">
-                        <video style="width:100%; aspect-ratio:16/9; background:#000; border-radius:8px; object-fit:cover; margin-bottom:8px;" playsinline webkit-playsinline controls src="${item.url}"></video>
+                        <div style="background:#000; width:100%; aspect-ratio:16/9; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#fff; font-size:13px; font-weight:bold; margin-bottom:8px; border:1px solid rgba(255,255,255,0.1);">
+                            ✨ ${item.prompt}
+                        </div>
                         <strong style="font-size: 13px;">${item.prompt}</strong>
                         <p style="color: var(--text-muted); font-size: 11px; margin-top: 4px;">Створено: ${item.date}</p>
                     </div>
