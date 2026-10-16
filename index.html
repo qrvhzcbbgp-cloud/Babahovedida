@@ -255,17 +255,15 @@
             transition: width 0.3s;
         }
 
-        .canvas-player-wrap {
+        .video-player-wrap {
             position: relative;
             width: 100%;
             aspect-ratio: 16/9;
             background: #000;
             display: none;
-            justify-content: center;
-            align-items: center;
         }
 
-        canvas {
+        .video-player-wrap video {
             width: 100%;
             height: 100%;
             object-fit: cover;
@@ -425,7 +423,7 @@
     <div class="view-section active" id="chatSection">
         <div id="chatFeed">
             <div class="message-row bot">
-                <div class="bubble">Привіт! Опиши будь-яку фантазію, і я згенерую для тебе анімоване AI-відео! 👇</div>
+                <div class="bubble">Привіт! Опиши будь-яку фантазію, і я згенерую для тебе якісне AI-відео! 👇</div>
             </div>
         </div>
     </div>
@@ -491,6 +489,14 @@
             startGeneration();
         }
 
+        // Набір красивих відео для демонстрації генерації AI
+        const sampleVideos = [
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackSeeTheWorld.mp4"
+        ];
+
         function startGeneration() {
             const query = userInput.value.trim();
             if (!query) return;
@@ -499,8 +505,11 @@
             userInput.value = '';
 
             const uid = 'gen-' + Date.now();
+            // Вибираємо відео випадковим чином з бази
+            const randomVideoUrl = sampleVideos[Math.floor(Math.random() * sampleVideos.length)];
+
             const botHtml = `
-                <div class="bubble" style="margin-bottom: 6px;">Генерація за запитом: <b>"${query}"</b>... Рендеринг нейро-кадрів.</div>
+                <div class="bubble" style="margin-bottom: 6px;">Генерація за запитом: <b>"${query}"</b>... Рендеринг дифузії кадрів.</div>
                 <div class="studio-card">
                     <div class="studio-header">
                         <span>⚡ AI Studio Engine</span>
@@ -508,24 +517,25 @@
                     </div>
                     <div class="progress-view" id="${uid}-loadbox">
                         <div class="spinner-ring"></div>
-                        <span style="font-size: 12px; color: var(--text-muted);" id="${uid}-status-text">Синтез ділянок кадру...</span>
+                        <span style="font-size: 12px; color: var(--text-muted);" id="${uid}-status-text">Синтез семантичних векторів...</span>
                         <div class="progress-bar-track">
                             <div class="progress-bar-fill" id="${uid}-bar"></div>
                         </div>
                     </div>
-                    <div class="canvas-player-wrap" id="${uid}-playerbox">
+                    <div class="video-player-wrap" id="${uid}-playerbox">
                         <div class="video-badge">PixVerse AI • HD</div>
-                        <canvas id="${uid}-canvas" width="640" height="360"></canvas>
+                        <video id="${uid}-vid" playsinline webkit-playsinline loop src="${randomVideoUrl}"></video>
                     </div>
                     <div class="video-controls-bar" id="${uid}-ctrls" style="display: none;">
-                        <button class="ctrl-btn" onclick="toggleAnim('${uid}')">▶️ Пауза / Пуск</button>
-                        <button class="ctrl-btn" onclick="saveToGallery('${query.replace(/'/g, "")}')">💾 Зберегти</button>
+                        <button class="ctrl-btn" onclick="togglePlay('${uid}-vid')">▶️ Старт / Пауза</button>
+                        <button class="ctrl-btn" onclick="restartVid('${uid}-vid')">🔄 Наново</button>
+                        <button class="ctrl-btn" onclick="saveToGallery('${query.replace(/'/g, "")}', '${randomVideoUrl}')">💾 Зберегти</button>
                     </div>
                 </div>
             `;
 
             appendMsg("", 'bot', botHtml);
-            runCanvasSimulation(uid, query);
+            runVideoSimulation(uid, query, randomVideoUrl);
         }
 
         function appendMsg(text, sender, html = '') {
@@ -546,9 +556,7 @@
             document.getElementById('chatSection').scrollTop = document.getElementById('chatSection').scrollHeight;
         }
 
-        let activeAnimations = {};
-
-        function runCanvasSimulation(id, promptText) {
+        function runVideoSimulation(id, promptText, videoUrl) {
             let p = 0;
             const pctEl = document.getElementById(`${id}-pct`);
             const barEl = document.getElementById(`${id}-bar`);
@@ -556,8 +564,7 @@
             const loadBox = document.getElementById(`${id}-loadbox`);
             const playerBox = document.getElementById(`${id}-playerbox`);
             const ctrls = document.getElementById(`${id}-ctrls`);
-            const canvas = document.getElementById(`${id}-canvas`);
-            const ctx = canvas.getContext('2d');
+            const vidEl = document.getElementById(`${id}-vid`);
 
             const timer = setInterval(() => {
                 p += Math.floor(Math.random() * 15) + 8;
@@ -569,62 +576,33 @@
 
                     setTimeout(() => {
                         loadBox.style.display = "none";
-                        playerBox.style.display = "flex";
+                        playerBox.style.display = "block";
                         ctrls.style.display = "flex";
                         
-                        // Запуск анімації на Canvas спеціально для iPhone
-                        startCanvasLoop(ctx, canvas, promptText, id);
-                        saveToGallerySilent(promptText);
+                        vidEl.play().catch(() => {});
+                        saveToGallerySilent(promptText, videoUrl);
                     }, 400);
                 } else {
                     pctEl.textContent = p + "%";
                     barEl.style.width = p + "%";
-                    if(p > 50) statEl.textContent = "Фінальна оптимізація кадрів...";
+                    if(p > 50) statEl.textContent = "Фінальний апскейл кадрів...";
                 }
             }, 250);
         }
 
-        function startCanvasLoop(ctx, canvas, text, id) {
-            let angle = 0;
-            let running = true;
-            activeAnimations[id] = () => { running = !running; };
-
-            function render() {
-                if(!document.body.contains(canvas)) return;
-                if(running) {
-                    angle += 0.03;
-                    ctx.fillStyle = "#0a0c1b";
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-                    // Малюємо рухомі неонові елементи (імітація нейромережі)
-                    for(let i = 0; i < 5; i++) {
-                        ctx.beginPath();
-                        ctx.arc(
-                            canvas.width/2 + Math.sin(angle + i) * 120,
-                            canvas.height/2 + Math.cos(angle * 0.7 + i) * 50,
-                            30 + i * 10, 0, Math.PI * 2
-                        );
-                        ctx.fillStyle = i % 2 === 0 ? "rgba(131, 56, 236, 0.25)" : "rgba(255, 0, 110, 0.25)";
-                        ctx.fill();
-                    }
-
-                    // Текст запиту користувача на екрані відео
-                    ctx.fillStyle = "#ffffff";
-                    ctx.font = "bold 20px sans-serif";
-                    ctx.textAlign = "center";
-                    ctx.fillText("✨ AI Video: " + text.substring(0, 24) + "...", canvas.width/2, canvas.height/2 + 8);
-                }
-                requestAnimationFrame(render);
-            }
-            render();
+        function togglePlay(vidId) {
+            const v = document.getElementById(vidId);
+            if(v.paused) v.play(); else v.pause();
         }
 
-        function toggleAnim(id) {
-            if(activeAnimations[id]) activeAnimations[id]();
+        function restartVid(vidId) {
+            const v = document.getElementById(vidId);
+            v.currentTime = 0;
+            v.play();
         }
 
-        function saveToGallerySilent(prompt) {
-            const item = { id: Date.now(), prompt: prompt, date: new Date().toLocaleDateString() };
+        function saveToGallerySilent(prompt, url) {
+            const item = { id: Date.now(), prompt: prompt, url: url, date: new Date().toLocaleDateString() };
             if(!savedVideos.some(v => v.prompt === prompt)) {
                 savedVideos.unshift(item);
                 localStorage.setItem('pixverse_ios_gallery', JSON.stringify(savedVideos));
@@ -632,8 +610,8 @@
             }
         }
 
-        function saveToGallery(prompt) {
-            saveToGallerySilent(prompt);
+        function saveToGallery(prompt, url) {
+            saveToGallerySilent(prompt, url);
             alert("Успішно збережено у Галерею!");
         }
 
@@ -647,6 +625,7 @@
             savedVideos.forEach(item => {
                 galleryGrid.innerHTML += `
                     <div class="gallery-item">
+                        <video style="width:100%; aspect-ratio:16/9; background:#000; border-radius:8px; object-fit:cover; margin-bottom:8px;" playsinline webkit-playsinline controls src="${item.url}"></video>
                         <strong style="font-size: 13px;">${item.prompt}</strong>
                         <p style="color: var(--text-muted); font-size: 11px; margin-top: 4px;">Створено: ${item.date}</p>
                     </div>
